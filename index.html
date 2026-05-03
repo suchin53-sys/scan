@@ -23,7 +23,7 @@ function getAllData() {
     }
   }
   
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById('1q9BF0VqmdUL07YxsAql3PHm28ov1XL_hmN5V2qyAhvg');
   var sheetS = ss.getSheetByName('Students');
   var sheetA = ss.getSheetByName('Attendance');
   var sheetSettings = ss.getSheetByName('Settings');
@@ -121,7 +121,7 @@ function getAllData() {
 
 // *** บันทึกรายการชั้นเรียน ***
 function saveClassList(classList) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById('1q9BF0VqmdUL07YxsAql3PHm28ov1XL_hmN5V2qyAhvg');
   var sheet = ss.getSheetByName('Classes');
   
   if (!sheet) {
@@ -144,7 +144,7 @@ function saveClassList(classList) {
 
 // *** ฟังก์ชันดึงข้อมูล Attendance ทั้งหมด (สำหรับรายงาน) ***
 function getFullAttendance(startDate, endDate) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById('1q9BF0VqmdUL07YxsAql3PHm28ov1XL_hmN5V2qyAhvg');
   var sheetA = ss.getSheetByName('Attendance');
   
   if (!sheetA || sheetA.getLastRow() <= 1) {
@@ -195,7 +195,7 @@ function clearCache() {
 
 function saveSettings(settings) {
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ss = SpreadsheetApp.openById('1q9BF0VqmdUL07YxsAql3PHm28ov1XL_hmN5V2qyAhvg');
     var sheet = ss.getSheetByName('Settings');
     
     if (!sheet) {
@@ -219,7 +219,7 @@ function saveSettings(settings) {
 }
 
 function registerFace(id, name, cls, img64, desc) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById('1q9BF0VqmdUL07YxsAql3PHm28ov1XL_hmN5V2qyAhvg');
   var sheet = ss.getSheetByName('Students');
   
   try {
@@ -253,7 +253,7 @@ function registerFace(id, name, cls, img64, desc) {
 }
 
 function saveCheckIn(id, name, cls, status, targetDate) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById('1q9BF0VqmdUL07YxsAql3PHm28ov1XL_hmN5V2qyAhvg');
   var sheet = ss.getSheetByName('Attendance');
   
   var now = new Date();
@@ -295,7 +295,7 @@ function saveCheckIn(id, name, cls, status, targetDate) {
 
 // *** ฟังก์ชันใหม่: ลบการลงเวลา (ยกเลิกสถานะ) ***
 function deleteCheckIn(id, targetDate) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById('1q9BF0VqmdUL07YxsAql3PHm28ov1XL_hmN5V2qyAhvg');
   var sheet = ss.getSheetByName('Attendance');
   var dateStr = Utilities.formatDate(new Date(targetDate), "GMT+7", "yyyy-MM-dd");
   
@@ -326,7 +326,7 @@ function deleteCheckIn(id, targetDate) {
 }
 
 function saveBatchCheckIn(records) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById('1q9BF0VqmdUL07YxsAql3PHm28ov1XL_hmN5V2qyAhvg');
   var sheet = ss.getSheetByName('Attendance');
   
   var lock = LockService.getScriptLock();
@@ -357,7 +357,7 @@ function saveBatchCheckIn(records) {
 }
 
 function getStudentHistory(id) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById('1q9BF0VqmdUL07YxsAql3PHm28ov1XL_hmN5V2qyAhvg');
   var sheet = ss.getSheetByName('Attendance');
   var data = [];
   if(sheet && sheet.getLastRow() > 1) {
@@ -386,7 +386,7 @@ function getStudentHistory(id) {
 }
 
 function uploadStudentCSV(data) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById('1q9BF0VqmdUL07YxsAql3PHm28ov1XL_hmN5V2qyAhvg');
   var sheet = ss.getSheetByName('Students');
   var existingIds = [];
   if(sheet.getLastRow() > 1) {
@@ -405,7 +405,7 @@ function uploadStudentCSV(data) {
 }
 
 function editStudent(oldId, newId, newName, newCls) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById('1q9BF0VqmdUL07YxsAql3PHm28ov1XL_hmN5V2qyAhvg');
   var sheet = ss.getSheetByName('Students');
   
   try {
@@ -426,7 +426,7 @@ function editStudent(oldId, newId, newName, newCls) {
 }
 
 function deleteStudent(id) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById('1q9BF0VqmdUL07YxsAql3PHm28ov1XL_hmN5V2qyAhvg');
   var sheet = ss.getSheetByName('Students');
   
   try {
@@ -445,7 +445,7 @@ function deleteStudent(id) {
 }
 
 function checkDuplicateFace(desc) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById('1q9BF0VqmdUL07YxsAql3PHm28ov1XL_hmN5V2qyAhvg');
   var sheet = ss.getSheetByName('Students');
   
   if (!sheet || sheet.getLastRow() <= 1) {
@@ -487,7 +487,7 @@ function euclideanDistance(arr1, arr2) {
 }
 
 function cleanupOldData() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById('1q9BF0VqmdUL07YxsAql3PHm28ov1XL_hmN5V2qyAhvg');
   var sheet = ss.getSheetByName('Attendance');
   
   if (!sheet || sheet.getLastRow() <= 1) {
@@ -538,7 +538,7 @@ function cleanupOldData() {
 }
 
 function cleanupCustom(daysToKeep) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById('1q9BF0VqmdUL07YxsAql3PHm28ov1XL_hmN5V2qyAhvg');
   var sheet = ss.getSheetByName('Attendance');
   
   if (!sheet || sheet.getLastRow() <= 1) {
@@ -589,7 +589,7 @@ function cleanupCustom(daysToKeep) {
 }
 
 function deleteByClass(className) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById('1q9BF0VqmdUL07YxsAql3PHm28ov1XL_hmN5V2qyAhvg');
   var sheet = ss.getSheetByName('Attendance');
   
   if (!sheet || sheet.getLastRow() <= 1) {
@@ -634,7 +634,7 @@ function deleteByClass(className) {
 
 function backupData() {
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var ss = SpreadsheetApp.openById('1q9BF0VqmdUL07YxsAql3PHm28ov1XL_hmN5V2qyAhvg');
     var backupName = "Backup_" + Utilities.formatDate(new Date(), "GMT+7", "yyyy-MM-dd_HHmmss");
     var backup = ss.copy(backupName);
     
@@ -651,7 +651,7 @@ function backupData() {
 }
 
 function archiveOldData(daysToKeep) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById('1q9BF0VqmdUL07YxsAql3PHm28ov1XL_hmN5V2qyAhvg');
   var sheet = ss.getSheetByName('Attendance');
   
   if (!sheet || sheet.getLastRow() <= 1) {
@@ -715,7 +715,7 @@ function archiveOldData(daysToKeep) {
 }
 
 function checkSystemHealth() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById('1q9BF0VqmdUL07YxsAql3PHm28ov1XL_hmN5V2qyAhvg');
   var health = { status: "healthy", students: 0, attendance: 0, lastUpdate: null, cacheStatus: "ok", warnings: [] };
   
   try {
@@ -745,7 +745,7 @@ function checkSystemHealth() {
 
 // === ระบบตรวจสอบสิทธิ์ (Login) ===
 function verifyLogin(username, password) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById('1q9BF0VqmdUL07YxsAql3PHm28ov1XL_hmN5V2qyAhvg');
   var sheet = ss.getSheetByName('Users');
   
   if (!sheet) {
@@ -767,7 +767,7 @@ function verifyLogin(username, password) {
 
 // === ระบบจัดการผู้ใช้งาน (Admin Only) ===
 function adminGetUsers() {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Users');
+  var sheet = SpreadsheetApp.openById('1q9BF0VqmdUL07YxsAql3PHm28ov1XL_hmN5V2qyAhvg').getSheetByName('Users');
   if(!sheet) return [];
   var data = sheet.getDataRange().getValues();
   data.shift(); 
@@ -775,7 +775,7 @@ function adminGetUsers() {
 }
 
 function adminSaveUser(username, password, role, name, cls) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById('1q9BF0VqmdUL07YxsAql3PHm28ov1XL_hmN5V2qyAhvg');
   var sheet = ss.getSheetByName('Users');
   if(!sheet) return {success: false, msg: "ไม่พบชีต Users"};
   
@@ -799,7 +799,7 @@ function adminSaveUser(username, password, role, name, cls) {
 
 function adminDeleteUser(username) {
   if(String(username).toLowerCase() === 'admin') return {success:false, msg: "ไม่สามารถลบบัญชี admin หลักได้"};
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var ss = SpreadsheetApp.openById('1q9BF0VqmdUL07YxsAql3PHm28ov1XL_hmN5V2qyAhvg');
   var sheet = ss.getSheetByName('Users');
   var data = sheet.getDataRange().getValues();
   for(var i=1; i<data.length; i++) {
