@@ -1,0 +1,812 @@
+function doGet() {
+  return HtmlService.createTemplateFromFile('index')
+    .evaluate()
+    .setTitle('Smart School V2.0')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1');
+}
+
+function include(filename) {
+  return HtmlService.createHtmlOutputFromFile(filename).getContent();
+}
+
+// *** ฟังก์ชันดึงข้อมูลแบบ Cache เพื่อความเร็ว ***
+function getAllData() {
+  var cache = CacheService.getScriptCache();
+  var cached = cache.get('allData');
+  
+  if (cached) {
+    try {
+      return JSON.parse(cached);
+    } catch(e) {
+      cache.remove('allData');
+    }
+  }
+  
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheetS = ss.getSheetByName('Students');
+  var sheetA = ss.getSheetByName('Attendance');
+  var sheetSettings = ss.getSheetByName('Settings');
+  var sheetC = ss.getSheetByName('Classes'); // เพิ่ม Sheet Classes
+  
+  var students = [];
+  var attendance = [];
+  var classes = [];
+  var settings = {
+    schoolName: 'วิทยาลัยเทคนิคอุตรดิตถ์(แผนกวิชาช่างไฟฟ้ากำลัง)',
+    autoCheckDelay: 2000,
+    faceMatchThreshold: 0.6,
+    autoRefreshInterval: 300000 
+  };
+
+  if (sheetS && sheetS.getLastRow() > 1) {
+    var rawS = sheetS.getDataRange().getValues();
+    rawS.shift();
+    students = rawS;
+  }
+
+  if (sheetA && sheetA.getLastRow() > 1) {
+    var today = new Date();
+    var sevenDaysAgo = new Date(today.getTime() - (7 * 24 * 60 * 60 * 1000));
+    var rawA = sheetA.getDataRange().getValues();
+    rawA.shift();
+    
+    attendance = rawA.filter(function(row) {
+      try {
+        var rowDate = new Date(row[1]);
+        return rowDate >= sevenDaysAgo;
+      } catch(e) {
+        return false;
+      }
+    });
+  }
+  
+  if (sheetSettings && sheetSettings.getLastRow() > 1) {
+    var rawSettings = sheetSettings.getDataRange().getValues();
+    rawSettings.shift();
+    rawSettings.forEach(function(row) {
+      var key = row[0];
+      var value = row[1];
+      if (key && value !== undefined && value !== null) {
+        settings[key] = value;
+      }
+    });
+  }
+
+  // ดึงข้อมูลชั้นเรียน
+  if (sheetC && sheetC.getLastRow() > 1) {
+    var rawC = sheetC.getDataRange().getValues();
+    rawC.shift();
+    classes = rawC.map(function(r) { return String(r[0]); }).filter(function(c) { return c; });
+  }
+  
+  var cleanAttendance = attendance.map(function(row) {
+    try {
+      var d = new Date(row[1]);
+      var dateStr = Utilities.formatDate(d, "GMT+7", "yyyy-MM-dd");
+      
+      var t = new Date(row[0]);
+      var timeStr = Utilities.formatDate(t, "GMT+7", "HH:mm");
+      
+      return { 
+        date: dateStr, 
+        time: timeStr, 
+        id: String(row[2]), 
+        name: row[3], 
+        cls: row[4], 
+        status: row[5] 
+      };
+    } catch(e) {
+      return null;
+    }
+  }).filter(function(x) { return x != null; });
+
+  var result = { 
+    students: students, 
+    attendance: cleanAttendance,
+    settings: settings,
+    classes: classes // ส่งข้อมูลชั้นเรียนไปด้วย
+  };
+  
+  try {
+    cache.put('allData', JSON.stringify(result), 600);
+  } catch(e) {
+    var todayStr = Utilities.formatDate(new Date(), "GMT+7", "yyyy-MM-dd");
+    result.attendance = cleanAttendance.filter(function(x) { return x.date === todayStr; });
+    cache.put('allData', JSON.stringify(result), 600);
+  }
+  
+  return result;
+}
+
+// *** บันทึกรายการชั้นเรียน ***
+function saveClassList(classList) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('Classes');
+  
+  if (!sheet) {
+    sheet = ss.insertSheet('Classes');
+  } else {
+    sheet.clear();
+  }
+  
+  sheet.appendRow(['ClassName']);
+  sheet.getRange("A1").setFontWeight("bold").setBackground("#f8fafc");
+  
+  var rows = classList.map(function(c) { return [c]; });
+  if(rows.length > 0) {
+    sheet.getRange(2, 1, rows.length, 1).setValues(rows);
+  }
+  
+  clearCache();
+  return { success: true, msg: "บันทึกชั้นเรียนเรียบร้อย" };
+}
+
+// *** ฟังก์ชันดึงข้อมูล Attendance ทั้งหมด (สำหรับรายงาน) ***
+function getFullAttendance(startDate, endDate) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheetA = ss.getSheetByName('Attendance');
+  
+  if (!sheetA || sheetA.getLastRow() <= 1) {
+    return [];
+  }
+  
+  var rawA = sheetA.getDataRange().getValues();
+  rawA.shift();
+  
+  var attendance = rawA.filter(function(row) {
+    try {
+      var rowDate = new Date(row[1]);
+      var start = new Date(startDate);
+      var end = new Date(endDate);
+      return rowDate >= start && rowDate <= end;
+    } catch(e) {
+      return false;
+    }
+  });
+  
+  return attendance.map(function(row) {
+    try {
+      var d = new Date(row[1]);
+      var dateStr = Utilities.formatDate(d, "GMT+7", "yyyy-MM-dd");
+      
+      var t = new Date(row[0]);
+      var timeStr = Utilities.formatDate(t, "GMT+7", "HH:mm");
+      
+      return { 
+        date: dateStr, 
+        time: timeStr, 
+        id: String(row[2]), 
+        name: row[3], 
+        cls: row[4], 
+        status: row[5] 
+      };
+    } catch(e) {
+      return null;
+    }
+  }).filter(function(x) { return x != null; });
+}
+
+function clearCache() {
+  var cache = CacheService.getScriptCache();
+  cache.remove('allData');
+  return { success: true };
+}
+
+function saveSettings(settings) {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName('Settings');
+    
+    if (!sheet) {
+      sheet = ss.insertSheet('Settings');
+      sheet.appendRow(['Key', 'Value']);
+    }
+    
+    if (sheet.getLastRow() > 1) {
+      sheet.deleteRows(2, sheet.getLastRow() - 1);
+    }
+    
+    Object.keys(settings).forEach(function(key) {
+      sheet.appendRow([key, settings[key]]);
+    });
+    
+    clearCache();
+    return { success: true, msg: "บันทึกการตั้งค่าเรียบร้อย" };
+  } catch(e) {
+    return { success: false, msg: "Error: " + e.toString() };
+  }
+}
+
+function registerFace(id, name, cls, img64, desc) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('Students');
+  
+  try {
+    var folderName = "Student_Face_DB";
+    var iter = DriveApp.getFoldersByName(folderName);
+    var folder = iter.hasNext() ? iter.next() : DriveApp.createFolder(folderName);
+    
+    var blob = Utilities.newBlob(Utilities.base64Decode(img64.split(',')[1]), 'image/jpeg', id+".jpg");
+    var file = folder.createFile(blob);
+    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+    
+    var descStr = JSON.stringify(desc);
+    var photoUrl = file.getDownloadUrl();
+
+    var data = sheet.getDataRange().getValues();
+    for(var i=1; i<data.length; i++) {
+      if(String(data[i][0]) == String(id)) {
+        sheet.getRange(i+1, 4).setValue(descStr);
+        sheet.getRange(i+1, 5).setValue(photoUrl);
+        clearCache();
+        return { success: true, msg: "อัปเดตข้อมูลเดิมเรียบร้อย" };
+      }
+    }
+    
+    sheet.appendRow([id, name, cls, descStr, photoUrl]);
+    clearCache();
+    return { success: true, msg: "ลงทะเบียนใหม่เรียบร้อย" };
+  } catch(e) {
+    return { success: false, msg: "Error: " + e.toString() };
+  }
+}
+
+function saveCheckIn(id, name, cls, status, targetDate) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('Attendance');
+  
+  var now = new Date();
+  var dateToSave = targetDate ? new Date(targetDate) : now;
+  
+  var dateStr = Utilities.formatDate(dateToSave, "GMT+7", "yyyy-MM-dd"); 
+  var fullDateTime = Utilities.formatDate(now, "GMT+7", "yyyy-MM-dd HH:mm:ss");
+
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(10000); 
+    
+    var data = sheet.getDataRange().getValues();
+    
+    for(var i=1; i<data.length; i++) {
+       try {
+         var rowDate = new Date(data[i][1]);
+         var d = Utilities.formatDate(rowDate, "GMT+7", "yyyy-MM-dd");
+         if(d == dateStr && String(data[i][2]) == String(id)) {
+           sheet.getRange(i+1, 6).setValue(status);
+           sheet.getRange(i+1, 1).setValue(fullDateTime);
+           clearCache();
+           lock.releaseLock();
+           return { success: true, msg: "อัพเดตสถานะเรียบร้อย" };
+         }
+       } catch(e){}
+    }
+    
+    sheet.appendRow([fullDateTime, dateStr, id, name, cls, status]);
+    clearCache();
+    lock.releaseLock();
+    return { success: true };
+    
+  } catch(e) {
+    if(lock) lock.releaseLock();
+    return { success: false, msg: "Error: " + e.toString() };
+  }
+}
+
+// *** ฟังก์ชันใหม่: ลบการลงเวลา (ยกเลิกสถานะ) ***
+function deleteCheckIn(id, targetDate) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('Attendance');
+  var dateStr = Utilities.formatDate(new Date(targetDate), "GMT+7", "yyyy-MM-dd");
+  
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(10000);
+    var data = sheet.getDataRange().getValues();
+    
+    for(var i=1; i<data.length; i++) {
+      try {
+        var rowDate = new Date(data[i][1]);
+        var d = Utilities.formatDate(rowDate, "GMT+7", "yyyy-MM-dd");
+        if(d == dateStr && String(data[i][2]) == String(id)) {
+          sheet.deleteRow(i+1); // ลบแถวทิ้ง
+          clearCache();
+          lock.releaseLock();
+          return { success: true, msg: "ลบข้อมูลการลงเวลาเรียบร้อยแล้ว" };
+        }
+      } catch(e){}
+    }
+    
+    lock.releaseLock();
+    return { success: false, msg: "ไม่พบข้อมูลการลงเวลาที่ต้องการลบ" };
+  } catch(e) {
+    if(lock) lock.releaseLock();
+    return { success: false, msg: "Error: " + e.toString() };
+  }
+}
+
+function saveBatchCheckIn(records) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('Attendance');
+  
+  var lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(30000);
+    
+    var rows = [];
+    var now = new Date();
+    var todayStr = Utilities.formatDate(now, "GMT+7", "yyyy-MM-dd");
+    var fullDateTime = Utilities.formatDate(now, "GMT+7", "yyyy-MM-dd HH:mm:ss");
+    
+    records.forEach(function(rec) {
+      rows.push([fullDateTime, todayStr, rec.id, rec.name, rec.cls, rec.status]);
+    });
+    
+    if(rows.length > 0) {
+      sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, 6).setValues(rows);
+    }
+    
+    clearCache();
+    lock.releaseLock();
+    return { success: true, count: rows.length };
+    
+  } catch(e) {
+    if(lock) lock.releaseLock();
+    return { success: false, msg: "Error: " + e.toString() };
+  }
+}
+
+function getStudentHistory(id) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('Attendance');
+  var data = [];
+  if(sheet && sheet.getLastRow() > 1) {
+    data = sheet.getDataRange().getValues();
+  }
+  
+  var history = [];
+  var stats = { p:0, l:0, a:0, s:0, total:0 }; 
+  
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][2]) == String(id)) {
+      var d = new Date(data[i][0]);
+      var dateStr = Utilities.formatDate(d, "GMT+7", "dd/MM/yyyy HH:mm");
+      var status = data[i][5];
+      
+      history.push({ date: dateStr, status: status });
+      
+      if (status == 'มาเรียน') stats.p++;
+      else if (status == 'สาย') stats.l++;
+      else if (status == 'ป่วย') stats.s++;
+      else stats.a++;
+      stats.total++;
+    }
+  }
+  return { history: history.reverse(), stats: stats };
+}
+
+function uploadStudentCSV(data) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('Students');
+  var existingIds = [];
+  if(sheet.getLastRow() > 1) {
+    existingIds = sheet.getRange(2, 1, sheet.getLastRow()-1, 1).getValues().flat().map(String);
+  }
+  var count = 0;
+  data.forEach(function(row) {
+    var id = String(row[0]);
+    if(id && existingIds.indexOf(id) === -1) {
+      sheet.appendRow([id, row[1], row[2], "", ""]);
+      count++;
+    }
+  });
+  clearCache();
+  return { success: true, count: count };
+}
+
+function editStudent(oldId, newId, newName, newCls) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('Students');
+  
+  try {
+    var data = sheet.getDataRange().getValues();
+    for(var i=1; i<data.length; i++) {
+      if(String(data[i][0]) == String(oldId)) {
+        sheet.getRange(i+1, 1).setValue(newId);
+        sheet.getRange(i+1, 2).setValue(newName);
+        sheet.getRange(i+1, 3).setValue(newCls);
+        clearCache();
+        return { success: true, msg: "แก้ไขข้อมูลเรียบร้อย" };
+      }
+    }
+    return { success: false, msg: "ไม่พบรหัสนักเรียนนี้" };
+  } catch(e) {
+    return { success: false, msg: "Error: " + e.toString() };
+  }
+}
+
+function deleteStudent(id) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('Students');
+  
+  try {
+    var data = sheet.getDataRange().getValues();
+    for(var i=1; i<data.length; i++) {
+      if(String(data[i][0]) == String(id)) {
+        sheet.deleteRow(i+1);
+        clearCache();
+        return { success: true, msg: "ลบข้อมูลเรียบร้อย" };
+      }
+    }
+    return { success: false, msg: "ไม่พบรหัสนักเรียนนี้" };
+  } catch(e) {
+    return { success: false, msg: "Error: " + e.toString() };
+  }
+}
+
+function checkDuplicateFace(desc) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('Students');
+  
+  if (!sheet || sheet.getLastRow() <= 1) {
+    return { isDuplicate: false };
+  }
+  
+  var data = sheet.getDataRange().getValues();
+  var threshold = 0.4; 
+  
+  for (var i = 1; i < data.length; i++) {
+    if (data[i][3]) {
+      try {
+        var existingDesc = JSON.parse(data[i][3]);
+        var distance = euclideanDistance(desc, Object.values(existingDesc));
+        
+        if (distance < threshold) {
+          return {
+            isDuplicate: true,
+            student: {
+              id: data[i][0],
+              name: data[i][1],
+              cls: data[i][2]
+            }
+          };
+        }
+      } catch(e) {}
+    }
+  }
+  
+  return { isDuplicate: false };
+}
+
+function euclideanDistance(arr1, arr2) {
+  var sum = 0;
+  for (var i = 0; i < arr1.length; i++) {
+    sum += Math.pow(arr1[i] - arr2[i], 2);
+  }
+  return Math.sqrt(sum);
+}
+
+function cleanupOldData() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('Attendance');
+  
+  if (!sheet || sheet.getLastRow() <= 1) {
+    return { success: true, msg: "ไม่มีข้อมูลที่ต้องลบ" };
+  }
+  
+  try {
+    var lock = LockService.getScriptLock();
+    lock.waitLock(30000);
+    
+    var oneYearAgo = new Date();
+    oneYearAgo.setDate(oneYearAgo.getDate() - 365);
+    
+    var data = sheet.getDataRange().getValues();
+    var header = data[0];
+    var keepRows = [header]; 
+    var deletedCount = 0;
+    
+    for (var i = 1; i < data.length; i++) {
+      try {
+        var rowDate = new Date(data[i][1]);
+        if (rowDate >= oneYearAgo) {
+          keepRows.push(data[i]);
+        } else {
+          deletedCount++;
+        }
+      } catch(e) {
+        keepRows.push(data[i]);
+      }
+    }
+    
+    sheet.clear();
+    if (keepRows.length > 0) {
+      sheet.getRange(1, 1, keepRows.length, keepRows[0].length).setValues(keepRows);
+    }
+    
+    sheet.getRange(1, 1, 1, header.length).setFontWeight('bold').setBackground('#f8fafc');
+    
+    lock.releaseLock();
+    clearCache();
+    
+    return { success: true, msg: "ลบข้อมูลเก่า " + deletedCount + " แถว เรียบร้อย" };
+    
+  } catch(e) {
+    if(lock) lock.releaseLock();
+    return { success: false, msg: "Error: " + e.toString() };
+  }
+}
+
+function cleanupCustom(daysToKeep) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('Attendance');
+  
+  if (!sheet || sheet.getLastRow() <= 1) {
+    return { success: true, msg: "ไม่มีข้อมูลที่ต้องลบ" };
+  }
+  
+  try {
+    var lock = LockService.getScriptLock();
+    lock.waitLock(30000);
+    
+    var cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);
+    
+    var data = sheet.getDataRange().getValues();
+    var header = data[0];
+    var keepRows = [header];
+    var deletedCount = 0;
+    
+    for (var i = 1; i < data.length; i++) {
+      try {
+        var rowDate = new Date(data[i][1]);
+        if (rowDate >= cutoffDate) {
+          keepRows.push(data[i]);
+        } else {
+          deletedCount++;
+        }
+      } catch(e) {
+        keepRows.push(data[i]);
+      }
+    }
+    
+    sheet.clear();
+    if (keepRows.length > 0) {
+      sheet.getRange(1, 1, keepRows.length, keepRows[0].length).setValues(keepRows);
+    }
+    
+    sheet.getRange(1, 1, 1, header.length).setFontWeight('bold').setBackground('#f8fafc');
+    
+    lock.releaseLock();
+    clearCache();
+    
+    return { success: true, msg: "ลบข้อมูลเก่ากว่า " + daysToKeep + " วัน จำนวน " + deletedCount + " แถว", deleted: deletedCount };
+    
+  } catch(e) {
+    if(lock) lock.releaseLock();
+    return { success: false, msg: "Error: " + e.toString() };
+  }
+}
+
+function deleteByClass(className) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('Attendance');
+  
+  if (!sheet || sheet.getLastRow() <= 1) {
+    return { success: true, msg: "ไม่มีข้อมูลที่ต้องลบ" };
+  }
+  
+  try {
+    var lock = LockService.getScriptLock();
+    lock.waitLock(30000);
+    
+    var data = sheet.getDataRange().getValues();
+    var header = data[0];
+    var keepRows = [header];
+    var deletedCount = 0;
+    
+    for (var i = 1; i < data.length; i++) {
+      var rowClass = String(data[i][4]); 
+      if (rowClass !== className) {
+        keepRows.push(data[i]);
+      } else {
+        deletedCount++;
+      }
+    }
+    
+    sheet.clear();
+    if (keepRows.length > 0) {
+      sheet.getRange(1, 1, keepRows.length, keepRows[0].length).setValues(keepRows);
+    }
+    
+    sheet.getRange(1, 1, 1, header.length).setFontWeight('bold').setBackground('#f8fafc');
+    
+    lock.releaseLock();
+    clearCache();
+    
+    return { success: true, msg: "ลบข้อมูลห้อง " + className + " จำนวน " + deletedCount + " แถว", deleted: deletedCount };
+    
+  } catch(e) {
+    if(lock) lock.releaseLock();
+    return { success: false, msg: "Error: " + e.toString() };
+  }
+}
+
+function backupData() {
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var backupName = "Backup_" + Utilities.formatDate(new Date(), "GMT+7", "yyyy-MM-dd_HHmmss");
+    var backup = ss.copy(backupName);
+    
+    var folders = DriveApp.getFoldersByName("Backups");
+    if (folders.hasNext()) {
+      var folder = folders.next();
+      DriveApp.getFileById(backup.getId()).moveTo(folder);
+    }
+    
+    return { success: true, msg: "สำรองข้อมูลเรียบร้อย: " + backupName, fileId: backup.getId() };
+  } catch(e) {
+    return { success: false, msg: "Error: " + e.toString() };
+  }
+}
+
+function archiveOldData(daysToKeep) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('Attendance');
+  
+  if (!sheet || sheet.getLastRow() <= 1) {
+    return { success: true, msg: "ไม่มีข้อมูลที่ต้อง Archive" };
+  }
+  
+  try {
+    var lock = LockService.getScriptLock();
+    lock.waitLock(30000);
+    
+    var cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);
+    
+    var archiveName = "Attendance_Archive";
+    var archiveSheet = ss.getSheetByName(archiveName);
+    if (!archiveSheet) {
+      archiveSheet = ss.insertSheet(archiveName);
+      var header = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues();
+      archiveSheet.getRange(1, 1, 1, header[0].length).setValues(header);
+      archiveSheet.getRange(1, 1, 1, header[0].length).setFontWeight('bold').setBackground('#f8fafc');
+    }
+    
+    var data = sheet.getDataRange().getValues();
+    var header = data[0];
+    var keepRows = [header];
+    var archiveRows = [];
+    
+    for (var i = 1; i < data.length; i++) {
+      try {
+        var rowDate = new Date(data[i][1]);
+        if (rowDate >= cutoffDate) {
+          keepRows.push(data[i]);
+        } else {
+          archiveRows.push(data[i]);
+        }
+      } catch(e) {
+        keepRows.push(data[i]);
+      }
+    }
+    
+    if (archiveRows.length > 0) {
+      var lastRow = archiveSheet.getLastRow();
+      archiveSheet.getRange(lastRow + 1, 1, archiveRows.length, archiveRows[0].length).setValues(archiveRows);
+    }
+    
+    sheet.clear();
+    if (keepRows.length > 0) {
+      sheet.getRange(1, 1, keepRows.length, keepRows[0].length).setValues(keepRows);
+    }
+    sheet.getRange(1, 1, 1, header.length).setFontWeight('bold').setBackground('#f8fafc');
+    
+    lock.releaseLock();
+    clearCache();
+    
+    return { success: true, msg: "ย้ายข้อมูล " + archiveRows.length + " แถว ไป Sheet: " + archiveName, archived: archiveRows.length };
+    
+  } catch(e) {
+    if(lock) lock.releaseLock();
+    return { success: false, msg: "Error: " + e.toString() };
+  }
+}
+
+function checkSystemHealth() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var health = { status: "healthy", students: 0, attendance: 0, lastUpdate: null, cacheStatus: "ok", warnings: [] };
+  
+  try {
+    var sheetS = ss.getSheetByName('Students');
+    if (sheetS) health.students = sheetS.getLastRow() - 1;
+    
+    var sheetA = ss.getSheetByName('Attendance');
+    if (sheetA) {
+      health.attendance = sheetA.getLastRow() - 1;
+      if (health.attendance > 50000) {
+        health.warnings.push("ข้อมูลเยอะมาก แนะนำให้ทำความสะอาด");
+        health.status = "warning";
+      }
+    }
+    
+    var cache = CacheService.getScriptCache();
+    if (!cache.get('allData')) health.cacheStatus = "empty";
+    
+    health.lastUpdate = new Date().toString();
+  } catch(e) {
+    health.status = "error";
+    health.warnings.push("Error: " + e.toString());
+  }
+  
+  return health;
+}
+
+// === ระบบตรวจสอบสิทธิ์ (Login) ===
+function verifyLogin(username, password) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('Users');
+  
+  if (!sheet) {
+    sheet = ss.insertSheet('Users');
+    sheet.appendRow(['Username', 'Password', 'Role', 'Name', 'Class']);
+    sheet.appendRow(['admin', 'ep1234', 'admin', 'ผู้ดูแลระบบสูงสุด', '']);
+    sheet.appendRow(['teacher', 'ep1234', 'teacher', 'คุณครูประจำวิชา', '1/1']);
+    sheet.getRange("A1:E1").setFontWeight("bold").setBackground("#f8fafc");
+  }
+  
+  var data = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    if (String(data[i][0]) === String(username) && String(data[i][1]) === String(password)) {
+      return { success: true, user: data[i][0], role: data[i][2], name: data[i][3], cls: data[i][4] };
+    }
+  }
+  return { success: false, msg: "ชื่อผู้ใช้งานหรือรหัสผ่านไม่ถูกต้อง" };
+}
+
+// === ระบบจัดการผู้ใช้งาน (Admin Only) ===
+function adminGetUsers() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Users');
+  if(!sheet) return [];
+  var data = sheet.getDataRange().getValues();
+  data.shift(); 
+  return data.map(r => ({user: r[0], pass: r[1], role: r[2], name: r[3], cls: r[4] || ''}));
+}
+
+function adminSaveUser(username, password, role, name, cls) {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('Users');
+  if(!sheet) return {success: false, msg: "ไม่พบชีต Users"};
+  
+  var data = sheet.getDataRange().getValues();
+  var found = false;
+  for(var i=1; i<data.length; i++) {
+     if(String(data[i][0]) === String(username)) {
+        sheet.getRange(i+1, 2).setValue(password);
+        sheet.getRange(i+1, 3).setValue(role);
+        sheet.getRange(i+1, 4).setValue(name);
+        sheet.getRange(i+1, 5).setValue(cls || '');
+        found = true;
+        break;
+     }
+  }
+  if(!found) {
+     sheet.appendRow([username, password, role, name, cls || '']);
+  }
+  return {success: true, msg: "บันทึกข้อมูลผู้ใช้งานเรียบร้อย"};
+}
+
+function adminDeleteUser(username) {
+  if(String(username).toLowerCase() === 'admin') return {success:false, msg: "ไม่สามารถลบบัญชี admin หลักได้"};
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName('Users');
+  var data = sheet.getDataRange().getValues();
+  for(var i=1; i<data.length; i++) {
+     if(String(data[i][0]) === String(username)) {
+        sheet.deleteRow(i+1);
+        return {success:true, msg: "ลบผู้ใช้งานเรียบร้อย"};
+     }
+  }
+  return {success:false, msg: "ไม่พบผู้ใช้งานนี้"};
+}
